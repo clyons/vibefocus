@@ -113,6 +113,7 @@ async def lifespan(app: FastAPI):
     proj_cols = [c["name"] for c in inspector.get_columns("projects")]
     for col_name, col_type in [
         ("last_git_sync_at", "DATETIME"),
+        ("git_last_commit_at", "DATETIME"),
         ("completion_pct", "INTEGER DEFAULT 0"),
         ("ai_completion_pct", "INTEGER"),
         ("ai_completion_reason", "TEXT"),

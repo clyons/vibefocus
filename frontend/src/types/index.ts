@@ -91,6 +91,7 @@ export interface Project {
 
   // Git / GitHub stats
   git_last_commit: string | null
+  git_last_commit_at: string | null
   git_branch: string | null
   git_uncommitted: boolean
   github_stars: number | null

@@ -113,8 +113,19 @@ def get_local_git_stats(local_path: str) -> dict:
         except (subprocess.TimeoutExpired, FileNotFoundError):
             return ""
 
-    # Last commit: "abc1234 Fix auth token refresh (3 days ago)"
-    log_raw = run(["git", "log", "--oneline", "--format=%h %s (%cr)", "-1"])
+    # Last commit: "abc1234 Fix auth token refresh" + separate ISO date
+    # Use | separator and rsplit to handle | in commit subjects
+    log_raw = run(["git", "log", "--format=%h %s|%aI", "-1"])
+    git_last_commit = None
+    git_last_commit_at = None
+    if log_raw:
+        parts = log_raw.rsplit("|", 1)
+        git_last_commit = parts[0].strip() or None
+        if len(parts) == 2:
+            try:
+                git_last_commit_at = datetime.fromisoformat(parts[1].strip())
+            except ValueError:
+                pass
 
     # Current branch
     branch = run(["git", "rev-parse", "--abbrev-ref", "HEAD"])
@@ -124,7 +135,8 @@ def get_local_git_stats(local_path: str) -> dict:
     has_uncommitted = bool(status)
 
     return {
-        "git_last_commit": log_raw or None,
+        "git_last_commit": git_last_commit,
+        "git_last_commit_at": git_last_commit_at,
         "git_branch": branch or None,
         "git_uncommitted": has_uncommitted,
     }
