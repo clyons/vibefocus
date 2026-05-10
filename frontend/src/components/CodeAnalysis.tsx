@@ -9,12 +9,31 @@ interface Props {
 
 function fmtDate(iso: string | null): string {
   if (!iso) return 'never'
-  const d = new Date(iso)
-  const diff = Date.now() - d.getTime()
+  const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(iso)
+  const d = new Date(hasTimezone ? iso : `${iso}Z`)
+  const diff = Math.max(0, Date.now() - d.getTime())
   const days = Math.floor(diff / 86400000)
   if (days === 0) return 'today'
   if (days === 1) return 'yesterday'
   return `${days} days ago`
+}
+
+function commitWithDate(commit: string | null, iso: string | null): string {
+  if (!commit) return ''
+  return iso ? `${commit} (${fmtDate(iso)})` : commit
+}
+
+function branchDiscrepancy(project: Project): string | null {
+  const ahead = project.git_ahead_count ?? 0
+  const behind = project.git_behind_count ?? 0
+  const commitWord = (n: number) => n === 1 ? 'commit' : 'commits'
+
+  if (ahead > 0 && behind > 0) {
+    return `local branch has diverged: ahead by ${ahead} ${commitWord(ahead)}, behind by ${behind} ${commitWord(behind)}`
+  }
+  if (behind > 0) return `local checkout is behind remote by ${behind} ${commitWord(behind)}`
+  if (ahead > 0) return `local checkout is ahead of remote by ${ahead} ${commitWord(ahead)}`
+  return null
 }
 
 export function CodeAnalysis({ project }: Props) {
@@ -43,6 +62,10 @@ export function CodeAnalysis({ project }: Props) {
   const hasCode = !!project.local_path
   const hasGitHub = !!project.github_url
   const hasAnalysis = !!project.code_summary
+  const discrepancy = branchDiscrepancy(project)
+  const showLocalHead = !!discrepancy
+    && !!project.git_local_last_commit
+    && project.git_local_last_commit !== project.git_last_commit
 
   // Auto-refresh stats when Code tab opens, if stale (null or > 12 hours old)
   useEffect(() => {
@@ -110,14 +133,25 @@ export function CodeAnalysis({ project }: Props) {
           {project.git_last_commit && (
             <StatRow
               label="Last commit"
-              value={project.git_last_commit_at
-                ? `${project.git_last_commit} (${fmtDate(project.git_last_commit_at)})`
-                : project.git_last_commit}
+              value={commitWithDate(project.git_last_commit, project.git_last_commit_at)}
               mono
             />
           )}
           {project.git_branch && (
             <StatRow label="Branch" value={project.git_branch} mono />
+          )}
+          {project.git_remote_branch && discrepancy && (
+            <StatRow label="Remote" value={project.git_remote_branch} mono />
+          )}
+          {discrepancy && (
+            <StatRow label="Checkout status" value={discrepancy} />
+          )}
+          {showLocalHead && (
+            <StatRow
+              label="Local HEAD"
+              value={commitWithDate(project.git_local_last_commit, project.git_local_last_commit_at)}
+              mono
+            />
           )}
           {project.git_uncommitted && (
             <StatRow label="Uncommitted" value="yes ⚠" />

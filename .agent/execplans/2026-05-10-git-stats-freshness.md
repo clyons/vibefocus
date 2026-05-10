@@ -20,12 +20,23 @@ After this change:
 
 - [x] (2026-05-10) Initial planning completed.
 - [x] (2026-05-10) Implementation complete — all 7 files edited.
-- [ ] Validation complete (requires running backend + frontend against a real DB).
+- [x] (2026-05-10) Follow-up root cause found: refreshed stats still showed old commits when the local checkout was behind its remote-tracking branch.
+- [x] (2026-05-10) Follow-up implementation updated to preserve and display local-vs-remote discrepancies instead of silently overriding local `HEAD`.
+- [x] (2026-05-10) Follow-up validation complete: Python compile, frontend build, Docker redeploy, health check, and live `PQ Reps` refresh verified.
 
 ## Surprises & Discoveries
 
-- Observation: None yet.
-  Evidence: N/A.
+- Observation: "Refresh stats" was current for the local checkout, but the local checkout itself could be stale. `PQ Reps` showed `a8642b0 Add Steno SDK playground...` because `/Users/ciaran/conductor/repos/pq-reps` was on `main...origin/main [behind 51]`.
+  Evidence: `git -C /Users/ciaran/conductor/repos/pq-reps status --short --branch` returned `## main...origin/main [behind 51]`, while `git -C /Users/ciaran/conductor/repos/pq-reps log -1 origin/main` returned `6a2346a Persist Vercel sessions and update analytics (#359)`.
+
+- Observation: Docker mounts local repos read-only and the image does not include `ssh`, so the app cannot rely on doing a `git fetch` inside the container.
+  Evidence: `docker exec san-diego-vibefocus-1 git -C /Users/ciaran/conductor/repos/pq-reps fetch --dry-run --quiet origin` failed with `error: cannot run ssh: No such file or directory`.
+
+- Observation: API timestamps are serialized without a timezone suffix, so the browser interpreted UTC server times as local wall-clock times and showed `Stats refreshed -1 days ago`.
+  Evidence: The API returned `stats_updated_at: "2026-05-10T18:03:09.379649"` while the screenshot was taken around `2026-05-10 2:03 PM` local time.
+
+- Observation: This host has legacy `docker-compose` but not the newer `docker compose` subcommand.
+  Evidence: `docker compose down` failed with `docker: unknown command: docker compose`; `docker-compose down && make docker-run` succeeded.
 
 ## Decision Log
 
@@ -39,6 +50,22 @@ After this change:
 
 - Decision: Parse the two pieces of info (message + ISO date) from a single `git log` command using `|` as an in-band separator.
   Rationale: Avoids a second subprocess call. A `|` in a commit subject is unusual but possible. Safer alternative if needed: split on the last `|` occurrence, since the date is always the final segment.
+  Date/Author: 2026-05-10 / Ciaran Lyons
+
+- Decision: For local stats, read the current branch's upstream ref when one exists, falling back to `HEAD` only when no upstream is configured.
+  Rationale: This keeps the displayed commit aligned with the latest known remote-tracking branch without mutating the user's checkout.
+  Date/Author: 2026-05-10 / Ciaran Lyons
+
+- Decision: When a GitHub URL is present and the local branch matches the repo default branch, prefer GitHub's latest default-branch commit over local git output.
+  Rationale: This fixes stale read-only Docker mounts and stale local clones for the common `main` branch case without misrepresenting feature branches as default branch history.
+  Date/Author: 2026-05-10 / Ciaran Lyons
+
+- Decision: Preserve local and remote commit fields plus ahead/behind counts, and display a neutral checkout-status row when they differ.
+  Rationale: The UI should show the freshest known remote commit, but it should also explain why local `HEAD` is older. Silent replacement hides useful operational context.
+  Date/Author: 2026-05-10 / Ciaran Lyons
+
+- Decision: Treat timezone-less API timestamps as UTC in the frontend date formatter and clamp negative elapsed time to zero.
+  Rationale: Backend timestamps use `datetime.utcnow()` and serialize without `Z`; browser-local parsing made fresh timestamps look like future dates.
   Date/Author: 2026-05-10 / Ciaran Lyons
 
 ## Outcomes & Retrospective
@@ -137,6 +164,31 @@ useEffect(() => {
 
 The dependency is `project.id` only — fires once per project open, not on every re-render.
 
+### Part 3 — Prefer remote/default branch commit when local checkout is behind
+
+**`backend/services/git_service.py` — local git stats**
+
+Use `git rev-parse --abbrev-ref --symbolic-full-name @{upstream}` to find the checked-out branch's upstream ref. Run the last-commit `git log` against that ref when present, falling back to `HEAD` if the branch has no upstream.
+
+**`backend/services/git_service.py` — GitHub fallback**
+
+When a `github_url` is present, fetch the repo default branch and latest commit from the GitHub public API. If the local branch matches the default branch, override the last-commit fields with GitHub's latest default-branch commit. Keep local branch and uncommitted status from the local checkout. Also persist:
+
+- `git_local_last_commit` / `git_local_last_commit_at`
+- `git_remote_last_commit` / `git_remote_last_commit_at`
+- `git_remote_branch`
+- `git_ahead_count` / `git_behind_count`
+
+Use GitHub's compare API when available so stale remote-tracking refs do not undercount how far behind the local checkout is.
+
+**`frontend/src/components/CodeAnalysis.tsx` — discrepancy display**
+
+When ahead/behind counts are non-zero, show a neutral `Checkout status` row such as `local checkout is behind remote by 51 commits`, plus a `Local HEAD` row when it differs from the displayed latest commit.
+
+**`frontend/src/components/CodeAnalysis.tsx` — timestamp display**
+
+Normalize timezone-less API timestamps as UTC before computing relative ages, and clamp negative differences to zero so fresh UTC timestamps render as `today` instead of `-1 days ago`.
+
 ## Concrete Steps
 
 From repository root:
@@ -163,6 +215,12 @@ cd ../frontend && npm run build
 
 6. **Backward compat**: Projects with old `git_last_commit` strings (containing baked-in `(X days ago)`) that have no `git_last_commit_at` still render without error — just showing the raw legacy string.
 
+7. **Behind local checkout**: With `/Users/ciaran/conductor/repos/pq-reps` on `main...origin/main [behind 51]`, refreshing stats stores the GitHub/default-branch commit rather than local `HEAD` commit `a8642b0 Add Steno SDK playground with 15 exploration panels (#312)`.
+
+8. **Timezone display**: A UTC server timestamp without a `Z` suffix renders as `today`, not `-1 days ago`.
+
+9. **Discrepancy display**: The Code tab shows `Checkout status` when ahead/behind counts are non-zero, and shows the stale `Local HEAD` commit separately from the latest known remote commit.
+
 ## Idempotence and Recovery
 
 - The `ALTER TABLE` migration is guarded by the existing `if col_name not in proj_cols` check — safe to restart.
@@ -171,7 +229,11 @@ cd ../frontend && npm run build
 
 ## Artifacts and Notes
 
-To be filled in after implementation.
+- `python3 -m py_compile main.py models.py schemas.py services/git_service.py routers/data.py` passed.
+- `npm run build` passed; Vite emitted the existing large chunk warning.
+- `docker-compose down && make docker-run` rebuilt and restarted `san-diego-vibefocus-1`.
+- `curl http://localhost:8000/health` returned `{"status":"ok","version":"0.1.1"}`.
+- `POST /api/projects/5aef607b/refresh-stats` returned `git_last_commit: "6a2346a Persist Vercel sessions and update analytics (#359)"`, `git_local_last_commit: "a8642b0 Add Steno SDK playground with 15 exploration panels (#312)"`, `git_remote_branch: "origin/main"`, and `git_behind_count: 51`.
 
 ## Interfaces and Dependencies
 
@@ -191,3 +253,5 @@ git_last_commit_at: string | null  // ISO datetime
 ## Change Log
 
 - 2026-05-10: Created the plan from template.
+- 2026-05-10: Added follow-up for behind local checkouts, GitHub default-branch commit preference, and timezone-less UTC timestamp display.
+- 2026-05-10: Added local-vs-remote discrepancy persistence and UI display.

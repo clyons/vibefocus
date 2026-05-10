@@ -114,6 +114,13 @@ async def lifespan(app: FastAPI):
     for col_name, col_type in [
         ("last_git_sync_at", "DATETIME"),
         ("git_last_commit_at", "DATETIME"),
+        ("git_local_last_commit", "VARCHAR"),
+        ("git_local_last_commit_at", "DATETIME"),
+        ("git_remote_last_commit", "VARCHAR"),
+        ("git_remote_last_commit_at", "DATETIME"),
+        ("git_remote_branch", "VARCHAR"),
+        ("git_ahead_count", "INTEGER"),
+        ("git_behind_count", "INTEGER"),
         ("completion_pct", "INTEGER DEFAULT 0"),
         ("ai_completion_pct", "INTEGER"),
         ("ai_completion_reason", "TEXT"),

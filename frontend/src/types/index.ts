@@ -92,6 +92,13 @@ export interface Project {
   // Git / GitHub stats
   git_last_commit: string | null
   git_last_commit_at: string | null
+  git_local_last_commit: string | null
+  git_local_last_commit_at: string | null
+  git_remote_last_commit: string | null
+  git_remote_last_commit_at: string | null
+  git_remote_branch: string | null
+  git_ahead_count: number | null
+  git_behind_count: number | null
   git_branch: string | null
   git_uncommitted: boolean
   github_stars: number | null

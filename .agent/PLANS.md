@@ -115,6 +115,8 @@ Add the following when relevant:
 
 **Re-deploy requirement**: Any change to `backend/`, `frontend/src/`, or the DB schema requires `make docker-run` to take effect in the Docker environment (port 8000). The running container does not pick up local edits automatically. The dev server (`make run`, ports 8001/5173) is a separate environment and reflects changes on restart.
 
+**Compose command on this host**: use `docker-compose`, not `docker compose`; the Docker CLI here does not provide the newer compose subcommand.
+
 **Broken-network failure mode**: If `make docker-run` fails with "port already allocated" (another workspace's container holds port 8000), do NOT simply stop that container and re-run `make docker-run`. Docker-compose will reuse the half-initialised network it created during the failed attempt — the container will start and pass its internal health check, but the host-side port will be unreachable. Correct recovery:
 1. `docker stop <old-container>` — free the port
 2. `docker-compose down` — destroy the broken network

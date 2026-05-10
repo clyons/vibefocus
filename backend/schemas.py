@@ -158,6 +158,13 @@ class ProjectUpdate(BaseModel):
 class GitStats(BaseModel):
     git_last_commit: str | None = None
     git_last_commit_at: datetime | None = None
+    git_local_last_commit: str | None = None
+    git_local_last_commit_at: datetime | None = None
+    git_remote_last_commit: str | None = None
+    git_remote_last_commit_at: datetime | None = None
+    git_remote_branch: str | None = None
+    git_ahead_count: int | None = None
+    git_behind_count: int | None = None
     git_branch: str | None = None
     git_uncommitted: bool = False
     github_stars: int | None = None
@@ -188,6 +195,13 @@ class ProjectOut(ProjectBase):
     # Git / GitHub stats
     git_last_commit: str | None = None
     git_last_commit_at: datetime | None = None
+    git_local_last_commit: str | None = None
+    git_local_last_commit_at: datetime | None = None
+    git_remote_last_commit: str | None = None
+    git_remote_last_commit_at: datetime | None = None
+    git_remote_branch: str | None = None
+    git_ahead_count: int | None = None
+    git_behind_count: int | None = None
     git_branch: str | None = None
     git_uncommitted: bool = False
     github_stars: int | None = None
