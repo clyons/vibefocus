@@ -22,13 +22,31 @@ def sync_git_log(local_path: str, since: datetime | None = None, fetch_all: bool
     Parse git log with numstat and return list of commit dicts.
     If since is provided, only fetch commits after that date.
     If fetch_all is True, fetch entire history; otherwise default to 365 days.
+    Fetches remote refs first so commits only on the remote are included.
     """
     path = Path(local_path).expanduser().resolve()
     if not path.exists():
         return []
 
+    # Fetch remote refs so we include commits only pushed to origin (e.g. from another machine).
+    # Silently ignore failures — repos with no remote, no network, or read-only mounts fall back
+    # to refs already present in the local clone.
+    try:
+        subprocess.run(
+            ["git", "fetch", "--quiet", "--all"],
+            cwd=str(path), capture_output=True, text=True, timeout=15
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+
     cmd = [
         "git", "log",
+        # Include local work, remote-tracking refs, and releases without sweeping in
+        # tool-owned refs such as Conductor checkpoint refs.
+        "HEAD",
+        "--branches",
+        "--remotes",
+        "--tags",
         "--format=__COMMIT__%H|%h|%an|%ae|%aI|%s",
         "--numstat",
     ]
