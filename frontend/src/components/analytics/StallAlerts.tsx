@@ -24,12 +24,34 @@ export function StallAlerts({ data }: Props) {
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 12 }}>
-        <h3 style={{ fontSize: 13, fontWeight: 700 }}>Portfolio Health</h3>
-        <div style={{ display: 'flex', gap: 10 }}>
-          <HealthBadge count={active} status="active" />
-          <HealthBadge count={coolingCount} status="cooling" />
-          <HealthBadge count={dormantCount} status="dormant" />
+      <div style={{
+        display: 'flex',
+        alignItems: 'flex-start',
+        justifyContent: 'space-between',
+        gap: 16,
+        marginBottom: 12,
+        flexWrap: 'wrap',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
+          <h3 style={{ fontSize: 13, fontWeight: 700 }}>Portfolio Health</h3>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            <HealthBadge count={active} status="active" />
+            <HealthBadge count={coolingCount} status="cooling" />
+            <HealthBadge count={dormantCount} status="dormant" />
+          </div>
+        </div>
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          minHeight: 20,
+          fontSize: 10,
+          color: 'var(--muted)',
+          fontFamily: 'var(--mono)',
+        }}>
+          <span>dot = status</span>
+          <span style={{ width: 1, height: 12, background: 'var(--border)' }} />
+          <span>x/y = commits in last 7d/30d</span>
         </div>
       </div>
 

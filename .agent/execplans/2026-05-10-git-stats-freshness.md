@@ -23,6 +23,13 @@ After this change:
 - [x] (2026-05-10) Follow-up root cause found: refreshed stats still showed old commits when the local checkout was behind its remote-tracking branch.
 - [x] (2026-05-10) Follow-up implementation updated to preserve and display local-vs-remote discrepancies instead of silently overriding local `HEAD`.
 - [x] (2026-05-10) Follow-up validation complete: Python compile, frontend build, Docker redeploy, health check, and live `PQ Reps` refresh verified.
+- [x] (2026-05-10 19:13 UTC) Extended analytics git-log sync to include remote-tracking branch history, while excluding tool-owned checkpoint refs from lifecycle/health calculations.
+- [x] (2026-05-10 19:13 UTC) Rebuilt the local Docker app, forced a full PQ Reps git-log sync, and confirmed PQ Reps is now active in portfolio health.
+- [x] (2026-05-10 19:13 UTC) Updated Project Lifecycle so it opens at the latest date and keeps the project list pinned in the leftmost column while the timeline scrolls horizontally.
+- [x] (2026-05-10 19:13 UTC) Added a Portfolio Health legend explaining status dots and the `x/y = commits in last 7d/30d` convention.
+- [x] (2026-05-10 19:13 UTC) Validation complete against local build and running Docker app.
+- [x] (2026-05-10 19:15 UTC) Made the Project Lifecycle horizontal scroller explicit and visible, rather than relying on the global hidden-until-hover scrollbar styling.
+- [x] (2026-05-10 19:21 UTC) Corrected the scroller follow-up: replaced the bottom native lifecycle scrollbar with a visible top range scroller and made Commit Activity scale to fill its container again.
 
 ## Surprises & Discoveries
 
@@ -37,6 +44,27 @@ After this change:
 
 - Observation: This host has legacy `docker-compose` but not the newer `docker compose` subcommand.
   Evidence: `docker compose down` failed with `docker: unknown command: docker compose`; `docker-compose down && make docker-run` succeeded.
+
+- Observation: Portfolio health is calculated from `commit_logs`, not from the lightweight project `git_last_commit` stats. A project can show a fresh Last Commit value while analytics remain stale until `/sync-git-log` imports the missing history.
+  Evidence: PQ Reps had `git_last_commit_at = 2026-05-09T19:52:12`, but `/api/analytics/health` still showed `0/0 dormant` until a full git-log sync added the remote-tracking commits.
+
+- Observation: The previously rebuilt container did not contain the remote analytics change, so the UI was still backed by the old `sync_git_log()` implementation.
+  Evidence: `docker exec victoria-vibefocus-1 sed -n '19,38p' /app/services/git_service.py` showed no fetch and no remote-ref log flags before the rebuild.
+
+- Observation: `git log --all` is too broad for Conductor-managed worktrees because it includes internal checkpoint refs.
+  Evidence: `git log --all --format=...` for `/Users/ciaran/conductor/repos/pq-reps` returned `Checkpointer <checkpointer@noreply>` commits dated 2026-05-10 ahead of real project commits.
+
+- Observation: The Docker mount for `/Users` is read-only, so `git fetch --all` cannot update `.git/FETCH_HEAD` inside the container.
+  Evidence: Running fetch inside the container printed `error: cannot open '.git/FETCH_HEAD': Read-only file system`. The sync still works for refs already present in the host clone, and failures are intentionally ignored.
+
+- Observation: Global scrollbar styling makes scroll thumbs transparent until hover, which made a native Project Lifecycle scroller look absent.
+  Evidence: `frontend/src/index.css` set `::-webkit-scrollbar-thumb { background: transparent; }` and only changed the thumb on `*:hover`; the lifecycle timeline now uses a dedicated `.lifecycle-range` control above the chart.
+
+- Observation: A native horizontal scrollbar at the bottom of Project Lifecycle is not useful because the timeline is taller than the screenshot area. It reads as "no scroller" when the user is viewing the chart header and top rows.
+  Evidence: Screenshot `image-v6.png` showed the Project Lifecycle header and upper timeline rows with no visible scroll affordance. The implementation now places a visible range-style scroller directly above the timeline.
+
+- Observation: Commit Activity used fixed 13px cells, so on wider cards the heatmap occupied only part of the chart region and left a large blank area.
+  Evidence: Screenshot `image-v5.png` showed the commit grid ending well before the right side of the panel. `CommitHeatmap` now observes its container width and scales grid cells to fill the available chart area.
 
 ## Decision Log
 
@@ -68,12 +96,51 @@ After this change:
   Rationale: Backend timestamps use `datetime.utcnow()` and serialize without `Z`; browser-local parsing made fresh timestamps look like future dates.
   Date/Author: 2026-05-10 / Ciaran Lyons
 
+- Decision: For analytics git-log sync, include `HEAD`, `--branches`, `--remotes`, and `--tags` rather than `--all`.
+  Rationale: This captures local and remote-tracking project history, including PQ Reps remote commits, without counting Conductor checkpoint refs as user work.
+  Date/Author: 2026-05-10 / Codex
+
+- Decision: Keep lifecycle project labels outside the horizontally scrolling SVG instead of using SVG text inside the timeline.
+  Rationale: The chart now opens scrolled to the latest date by default; separate labels keep project names visible while the date axis and bars scroll.
+  Date/Author: 2026-05-10 / Codex
+
+- Decision: Give the lifecycle timeline its own always-visible horizontal scrollbar and a wider minimum timeline width.
+  Rationale: The product needs an obvious scroller for historical data; the global hidden scrollbar treatment is too subtle here.
+  Date/Author: 2026-05-10 / Codex
+
+- Decision: Use an explicit range input as the lifecycle timeline scroller instead of a native bottom scrollbar.
+  Rationale: The scroller must be visible near the chart header, where the user is looking. A bottom scrollbar can sit below many project rows and remain unseen.
+  Date/Author: 2026-05-10 / Codex
+
+- Decision: Scale Commit Activity grid cells from measured container width.
+  Rationale: The heatmap should fill its card at the selected date range instead of using a fixed pixel grid that leaves unused horizontal space on larger displays.
+  Date/Author: 2026-05-10 / Codex
+
+- Decision: Add a compact health legend in the Portfolio Health header.
+  Rationale: The project pills show a colored status dot and a terse `x/y` metric; the legend explains that `x/y` means commits in the last 7 days / last 30 days without making every row verbose.
+  Date/Author: 2026-05-10 / Codex
+
 ## Outcomes & Retrospective
 
 **Lesson learned — re-deploy required after schema or backend changes.**
 This task added a new DB column and changed backend logic. The Docker container was running the upstream pre-built image (`ericblue/vibefocus:0.1.1`) and did not pick up any local changes until `make docker-run` was explicitly run.
 
 **Broken-network failure mode discovered here.** The old container held port 8000. Stopping it and re-running `make docker-run` left the docker-compose network in a half-initialised state: the container started and passed its internal health check, but the host-side port binding was never programmed, so `localhost:8000` was unreachable. Root cause: compose created the `san-diego_default` network during the first failed attempt; on the second attempt it reused that broken network rather than recreating it. Fix: `docker-compose down` (destroys both container and network) followed by `docker-compose up -d`. This is now documented in `CLAUDE.md` and `PLANS.md`.
+
+**Remote analytics and UI follow-up complete.** PQ Reps now syncs remote-tracking history into `commit_logs` and reports active health. The lifecycle chart keeps project names pinned while the timeline opens at the newest date. Portfolio Health now explains both visual encodings: dot color is status, and `x/y` is 7-day / 30-day commit count.
+
+Validation evidence from 2026-05-10:
+- `frontend: npm run build` completed successfully with TypeScript and Vite.
+- `docker-compose up -d --build` rebuilt and restarted `victoria-vibefocus-1` on port 8000.
+- `POST /api/projects/5aef607b/sync-git-log?fetch_all=true` returned `{ "synced": 115, "total_commits": 874, "health_status": "active" }` for PQ Reps.
+- `GET /api/analytics/health` returned PQ Reps as `{ "status": "active", "commits_7d": 19, "commits_30d": 21, "total_commits": 874 }`.
+- `GET /api/analytics/focus?days=30` returned PQ Reps with `21` commits and `4602` lines changed.
+- `GET /api/analytics/lifecycle?days=3650` returned PQ Reps with `last_commit = 2026-05-09 20:05:56` and `total_commits = 874`.
+- `GET /health` returned `{ "status": "ok", "version": "0.1.1" }`.
+- Superseded follow-up: The first attempt used a bottom native scrollbar and wider timeline, but screenshots showed that was still not visible enough.
+- Follow-up correction: Project Lifecycle now uses a visible top `.lifecycle-range` scroller synchronized with the timeline, and Commit Activity now uses a `ResizeObserver` to fill its container width.
+- `frontend: npm run build` completed successfully after the scroller and heatmap-fill corrections.
+- `docker-compose up -d --build` rebuilt and restarted `victoria-vibefocus-1`; `GET /health` returned `{ "status": "ok", "version": "0.1.1" }`.
 
 ## Context and Orientation
 
@@ -87,6 +154,10 @@ Relevant files:
 | `backend/services/git_service.py` | `get_local_git_stats()` runs `git log`; `refresh_stats()` calls it |
 | `frontend/src/types/index.ts` | TypeScript `Project` interface |
 | `frontend/src/components/CodeAnalysis.tsx` | Displays stats; has `refreshStats` mutation; `fmtDate()` helper already exists |
+| `frontend/src/components/analytics/ProjectLifecycle.tsx` | Portfolio lifecycle chart; now uses a pinned project-label column and horizontally scrolling timeline |
+| `frontend/src/components/analytics/CommitHeatmap.tsx` | Commit Activity heatmap; now scales grid cells to fill the available chart width |
+| `frontend/src/components/analytics/StallAlerts.tsx` | Portfolio health grid; now includes a compact legend for status dots and commit-count ratios |
+| `frontend/src/index.css` | Global app styles; now includes a lifecycle-specific visible scrollbar override |
 
 The startup `lifespan()` in `main.py` already performs idempotent `ALTER TABLE projects ADD COLUMN` migrations — the new column fits this existing pattern exactly.
 
@@ -255,3 +326,6 @@ git_last_commit_at: string | null  // ISO datetime
 - 2026-05-10: Created the plan from template.
 - 2026-05-10: Added follow-up for behind local checkouts, GitHub default-branch commit preference, and timezone-less UTC timestamp display.
 - 2026-05-10: Added local-vs-remote discrepancy persistence and UI display.
+- 2026-05-10: Updated with remote analytics sync behavior, lifecycle pinned labels, portfolio health legend, Docker deployment, and validation evidence.
+- 2026-05-10: Added visible Project Lifecycle scrollbar follow-up.
+- 2026-05-10: Corrected follow-up with a top lifecycle range scroller and responsive Commit Activity fill.
