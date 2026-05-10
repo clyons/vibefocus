@@ -49,9 +49,7 @@ export function StallAlerts({ data }: Props) {
           color: 'var(--muted)',
           fontFamily: 'var(--mono)',
         }}>
-          <span>dot = status</span>
-          <span style={{ width: 1, height: 12, background: 'var(--border)' }} />
-          <span>x/y = commits in last 7d/30d</span>
+          <span>Commits: 7d / 30d</span>
         </div>
       </div>
 
