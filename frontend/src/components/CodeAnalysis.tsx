@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import type { Project } from '../types'
 import { api } from '../api/client'
@@ -43,6 +43,16 @@ export function CodeAnalysis({ project }: Props) {
   const hasCode = !!project.local_path
   const hasGitHub = !!project.github_url
   const hasAnalysis = !!project.code_summary
+
+  // Auto-refresh stats when Code tab opens, if stale (null or > 12 hours old)
+  useEffect(() => {
+    if (!hasCode && !hasGitHub) return
+    const staleThreshold = 12 * 60 * 60 * 1000
+    const lastUpdated = project.stats_updated_at ? new Date(project.stats_updated_at).getTime() : 0
+    if (Date.now() - lastUpdated > staleThreshold) {
+      refreshStats.mutate()
+    }
+  }, [project.id])
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -98,7 +108,13 @@ export function CodeAnalysis({ project }: Props) {
           display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 16px',
         }}>
           {project.git_last_commit && (
-            <StatRow label="Last commit" value={project.git_last_commit} mono />
+            <StatRow
+              label="Last commit"
+              value={project.git_last_commit_at
+                ? `${project.git_last_commit} (${fmtDate(project.git_last_commit_at)})`
+                : project.git_last_commit}
+              mono
+            />
           )}
           {project.git_branch && (
             <StatRow label="Branch" value={project.git_branch} mono />

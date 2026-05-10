@@ -51,7 +51,8 @@ class Project(Base):
     local_path  = Column(String, nullable=True)   # /Users/eric/code/myproject
 
     # Cached git / GitHub stats (refreshed on demand)
-    git_last_commit     = Column(String, nullable=True)   # "fix auth: 3 days ago"
+    git_last_commit     = Column(String, nullable=True)   # "abc1234 fix auth"
+    git_last_commit_at  = Column(DateTime, nullable=True)
     git_branch          = Column(String, nullable=True)
     git_uncommitted     = Column(Boolean, default=False)
     github_stars        = Column(Integer, nullable=True)
