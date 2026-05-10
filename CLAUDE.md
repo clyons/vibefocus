@@ -42,6 +42,16 @@ make docker-stop      # Stop containers
 Docker stores the SQLite database at `~/.vibefocus/data/` (host path, independent of the repo).
 Override with `VIBEFOCUS_DATA=/your/path`. To redeploy after updates: `git pull && make docker-run`.
 
+**Re-deploy required** after any change to `backend/`, `frontend/src/`, or the DB schema — the running container does not pick up local edits automatically.
+
+**If `make docker-run` fails with "port already allocated"**: a container from another workspace is holding port 8000. Do NOT just stop that container and re-run `make docker-run` — the compose network will be left in a broken state (container shows healthy but host port is unreachable). Instead:
+```bash
+docker stop <old-container>   # free the port
+docker-compose down           # destroy the broken network
+docker-compose up -d          # clean start
+```
+The reason: on a failed start, docker-compose creates the network but leaves its host-side port-forwarding rules half-initialised. `docker-compose down` is the only way to fully tear down that network so the next `up` gets a clean slate.
+
 There are no test suites, linters, or formatters configured in this project.
 
 ## Git & Pull Requests

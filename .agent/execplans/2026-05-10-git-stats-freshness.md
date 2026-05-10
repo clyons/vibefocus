@@ -43,7 +43,10 @@ After this change:
 
 ## Outcomes & Retrospective
 
-Summarize outcomes, remaining gaps, and lessons learned at milestone boundaries and at completion.
+**Lesson learned — re-deploy required after schema or backend changes.**
+This task added a new DB column and changed backend logic. The Docker container was running the upstream pre-built image (`ericblue/vibefocus:0.1.1`) and did not pick up any local changes until `make docker-run` was explicitly run.
+
+**Broken-network failure mode discovered here.** The old container held port 8000. Stopping it and re-running `make docker-run` left the docker-compose network in a half-initialised state: the container started and passed its internal health check, but the host-side port binding was never programmed, so `localhost:8000` was unreachable. Root cause: compose created the `san-diego_default` network during the first failed attempt; on the second attempt it reused that broken network rather than recreating it. Fix: `docker-compose down` (destroys both container and network) followed by `docker-compose up -d`. This is now documented in `CLAUDE.md` and `PLANS.md`.
 
 ## Context and Orientation
 
