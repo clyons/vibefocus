@@ -44,6 +44,8 @@ Override with `VIBEFOCUS_DATA=/your/path`. To redeploy after updates: `git pull 
 
 **Re-deploy required** after any change to `backend/`, `frontend/src/`, or the DB schema — the running container does not pick up local edits automatically.
 
+**Compose command on this host**: use `docker-compose`, not `docker compose`; the Docker CLI here does not provide the newer compose subcommand.
+
 **If `make docker-run` fails with "port already allocated"**: a container from another workspace is holding port 8000. Do NOT just stop that container and re-run `make docker-run` — the compose network will be left in a broken state (container shows healthy but host port is unreachable). Instead:
 ```bash
 docker stop <old-container>   # free the port
@@ -85,7 +87,7 @@ Entry point: `backend/main.py` — mounts three routers under `/api/`:
 **Services layer** (`backend/services/`):
 - `chat_service.py` — builds a system prompt containing the full portfolio (all projects, git stats, code analysis, insights) then streams via the configured AI provider. Anthropic and OpenAI are supported. Every chat message gets complete cross-project context.
 - `agent_analyzer.py` — on-demand codebase analysis using Anthropic Agent SDK or OpenAI Agents SDK depending on `AI_PROVIDER`. Called via `POST /api/projects/{id}/analyze`. Returns structured JSON: summary, tech stack, TODOs, health signal (active/cooling/dormant).
-- `git_service.py` — local git stats (last commit, branch, uncommitted) + GitHub public API (stars, issues, last push). Called via `POST /api/projects/{id}/refresh-stats`.
+- `git_service.py` — local git stats (last commit, branch, uncommitted) + GitHub public API (stars, issues, last push). Called via `POST /api/projects/{id}/refresh-stats`. Last commit must not read plain local `HEAD` only: local checkouts mounted into Docker can be many commits behind. Prefer the current branch's upstream ref, and when a GitHub URL is present and the local branch matches the default branch, prefer GitHub's latest default-branch commit. Preserve local-vs-remote discrepancy fields (`git_local_last_commit`, `git_remote_last_commit`, `git_ahead_count`, `git_behind_count`) so the UI can call out stale checkouts directly.
 
 **Settings**: loaded from `backend/.env` (copy `.env.example`). Keys: `ANTHROPIC_API_KEY` and/or `OPENAI_API_KEY`; `AI_PROVIDER=auto|anthropic|openai`.
 

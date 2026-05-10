@@ -53,6 +53,13 @@ class Project(Base):
     # Cached git / GitHub stats (refreshed on demand)
     git_last_commit     = Column(String, nullable=True)   # "abc1234 fix auth"
     git_last_commit_at  = Column(DateTime, nullable=True)
+    git_local_last_commit    = Column(String, nullable=True)
+    git_local_last_commit_at = Column(DateTime, nullable=True)
+    git_remote_last_commit   = Column(String, nullable=True)
+    git_remote_last_commit_at = Column(DateTime, nullable=True)
+    git_remote_branch   = Column(String, nullable=True)
+    git_ahead_count     = Column(Integer, nullable=True)
+    git_behind_count    = Column(Integer, nullable=True)
     git_branch          = Column(String, nullable=True)
     git_uncommitted     = Column(Boolean, default=False)
     github_stars        = Column(Integer, nullable=True)
