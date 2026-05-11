@@ -14,7 +14,7 @@ services:
       - PORT=8000
       - RELOAD=false
       - CORS_ORIGINS=http://localhost:${VIBEFOCUS_PORT:-8000}
-      - PROJECTS_DIR=${PROJECTS_DIR:-/Users}
+      - PROJECTS_DIR=${PROJECTS_DIR:-}
     volumes:
       - ${VIBEFOCUS_DATA:-$HOME/.vibefocus/data}:/app/data
       # Mount local repos (read-only) for git sync, code analysis, and AI chat.

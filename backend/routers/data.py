@@ -454,10 +454,17 @@ async def import_preview(file: UploadFile = File(...)):
 
 @router.get("/scan-config")
 def scan_config():
-    """Return the configured PROJECTS_DIR for the UI to display."""
+    """Return the configured PROJECTS_DIR and whether it is ready to scan."""
     raw = settings.projects_dir
     resolved = str(Path(raw).expanduser().resolve()) if raw else None
-    return {"projects_dir": resolved, "projects_dir_raw": raw}
+    exists = Path(resolved).is_dir() if resolved else False
+    return {
+        "projects_dir": resolved,
+        "projects_dir_raw": raw,
+        "exists": exists,
+        "configured": bool(raw),
+        "ready": bool(raw and exists),
+    }
 
 
 @router.post("/scan")
@@ -473,11 +480,22 @@ def scan_local_projects(
     if not scan_root:
         raise HTTPException(
             400,
-            "No scan directory configured. Set PROJECTS_DIR in backend/.env or pass ?root=... in the request.",
+            {
+                "code": "scan_root_required",
+                "message": "Enter a directory path to scan or set PROJECTS_DIR in backend/.env.",
+            },
         )
 
     root_path = Path(scan_root).expanduser().resolve()
     if not root_path.is_dir():
-        raise HTTPException(400, f"Directory not found: {scan_root}")
+        raise HTTPException(
+            400,
+            {
+                "code": "scan_root_missing",
+                "message": f"Directory not found: {scan_root}",
+                "root": scan_root,
+                "resolved_root": str(root_path),
+            },
+        )
 
     return scan_repos(db, root_path, recursive=recursive)

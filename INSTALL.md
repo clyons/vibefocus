@@ -166,6 +166,18 @@ PROJECTS_DIR=/Users/you/Development docker compose up -d --build
 
 Without this mount, VibeFocus still works but analytics (heatmaps, velocity, streaks) will be empty and code analysis won't be available.
 
+### Importing Existing Local Repos
+
+After startup, open Settings and use **Import Local Git Repositories**. Enter the parent folder that contains your repos, for example `/Users/you/Development`, then click **Scan Repositories**. VibeFocus creates missing projects, updates matching projects by local path or GitHub URL, infers GitHub URLs from `origin`, and refreshes lightweight git stats like branch, dirty status, and latest commit.
+
+If the Settings page says the directory is missing, the backend cannot see that path. For Docker, restart with the folder mounted:
+
+```bash
+PROJECTS_DIR=/Users/you/Development make docker-run
+```
+
+From source, set `PROJECTS_DIR` in `backend/.env` or enter the absolute path in Settings. Re-running a scan is safe; it updates existing projects without importing commit logs. Use Analytics sync later when you want heatmaps, velocity, streaks, and health history.
+
 ### From Source
 
 ```bash
