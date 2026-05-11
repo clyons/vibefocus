@@ -3,7 +3,7 @@ Import local git repositories into VibeFocus.
 
 Usage:
     cd backend
-    python import_local_projects.py --root /Users/ciaran/conductor/repos
+    python import_local_projects.py --root /Users/you/Development
 """
 
 from __future__ import annotations
@@ -12,13 +12,13 @@ import argparse
 import json
 import re
 import subprocess
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
 
 from database import Base, SessionLocal, engine
-from models import Bucket, CommitLog, HealthSnapshot, Project, State
-from services.git_service import get_local_git_stats, sync_git_log
+from models import Bucket, Project, State
+from services.git_service import get_local_git_stats
 
 
 DEFAULT_STATES = [
@@ -54,10 +54,19 @@ def utcnow_naive() -> datetime:
 
 
 def find_git_repos(root: Path, recursive: bool) -> Iterable[Path]:
+    if (root / ".git").is_dir():
+        yield root
+        if not recursive:
+            return
+
     if recursive:
+        seen = {root.resolve()} if (root / ".git").is_dir() else set()
         for git_dir in root.rglob(".git"):
             if git_dir.is_dir():
-                yield git_dir.parent
+                repo = git_dir.parent.resolve()
+                if repo not in seen:
+                    seen.add(repo)
+                    yield repo
         return
 
     for child in sorted(root.iterdir()):
@@ -76,13 +85,6 @@ def normalize_github_url(remote: str) -> str | None:
     if https_match:
         return remote
     return None
-
-
-def repo_owner(github_url: str | None) -> str | None:
-    if not github_url:
-        return None
-    match = re.match(r"https://github\.com/([^/]+)/", github_url)
-    return match.group(1) if match else None
 
 
 def title_from_name(name: str) -> str:
@@ -190,14 +192,7 @@ def priority_for(last_commit_at: datetime | None) -> str:
     return "low"
 
 
-def bucket_for(github_url: str | None, buckets: dict[str, str]) -> str:
-    owner = (repo_owner(github_url) or "").lower()
-    if owner in {"pqworks", "littlegreendot"}:
-        return buckets["Client Work"]
-    if owner in {"ericblue", "upwardbit"}:
-        return buckets["Open Source"]
-    if owner == "clyons":
-        return buckets["Side Project"]
+def bucket_for(buckets: dict[str, str]) -> str:
     return buckets["Uncategorized"]
 
 
@@ -215,59 +210,7 @@ def ensure_defaults(db) -> tuple[dict[str, str], dict[str, str]]:
     return buckets, states
 
 
-def sync_commits(db, project: Project, fetch_all: bool) -> int:
-    since = None if fetch_all else project.last_git_sync_at
-    commits_data = sync_git_log(project.local_path, since=since, fetch_all=fetch_all)
-    existing = {
-        row[0]
-        for row in db.query(CommitLog.sha).filter(CommitLog.project_id == project.id).all()
-    }
-    new_commits = [
-        CommitLog(project_id=project.id, **commit)
-        for commit in commits_data
-        if commit["sha"] not in existing
-    ]
-    if new_commits:
-        db.bulk_save_objects(new_commits)
-
-    now = utcnow_naive()
-    seven_days_ago = datetime(now.year, now.month, now.day) - timedelta(days=7)
-    thirty_days_ago = datetime(now.year, now.month, now.day) - timedelta(days=30)
-    commits_7d = db.query(CommitLog).filter(
-        CommitLog.project_id == project.id,
-        CommitLog.committed_at >= seven_days_ago,
-    ).count()
-    commits_30d = db.query(CommitLog).filter(
-        CommitLog.project_id == project.id,
-        CommitLog.committed_at >= thirty_days_ago,
-    ).count()
-    status = "active" if commits_7d else "cooling" if commits_30d else "dormant"
-    snapshot = (
-        db.query(HealthSnapshot)
-        .filter(
-            HealthSnapshot.project_id == project.id,
-            HealthSnapshot.recorded_at >= datetime(now.year, now.month, now.day),
-        )
-        .order_by(HealthSnapshot.recorded_at.desc())
-        .first()
-    )
-    if snapshot:
-        snapshot.status = status
-        snapshot.commits_7d = commits_7d
-        snapshot.commits_30d = commits_30d
-        snapshot.recorded_at = now
-    else:
-        db.add(HealthSnapshot(
-            project_id=project.id,
-            status=status,
-            commits_7d=commits_7d,
-            commits_30d=commits_30d,
-        ))
-    project.last_git_sync_at = now
-    return len(new_commits)
-
-
-def import_repo(db, repo: Path, buckets: dict[str, str], states: dict[str, str], fetch_all: bool) -> tuple[str, str, int]:
+def import_repo(db, repo: Path, buckets: dict[str, str], states: dict[str, str]) -> tuple[str, str]:
     remote = run(repo, ["git", "remote", "get-url", "origin"])
     github_url = normalize_github_url(remote)
     local_path = str(repo.resolve())
@@ -282,17 +225,17 @@ def import_repo(db, repo: Path, buckets: dict[str, str], states: dict[str, str],
     if created:
         project = Project(
             name=title_from_name(repo.name),
-            bucket_id=bucket_for(github_url, buckets),
+            bucket_id=bucket_for(buckets),
             state_id=state_for(last_commit_at, states),
+            priority=priority_for(last_commit_at),
             kanban_position=db.query(Project).count(),
         )
         db.add(project)
 
     project.description = project.description or read_description(repo)
-    project.github_url = github_url or project.github_url
+    project.github_url = project.github_url or github_url
     project.local_path = local_path
-    project.priority = priority_for(last_commit_at)
-    project.code_tech_stack = detect_stack(repo) or project.code_tech_stack
+    project.code_tech_stack = project.code_tech_stack or detect_stack(repo)
     project.code_summary = project.code_summary or f"Imported from local git repository at {local_path}."
 
     for field, value in get_local_git_stats(local_path).items():
@@ -300,34 +243,43 @@ def import_repo(db, repo: Path, buckets: dict[str, str], states: dict[str, str],
     project.stats_updated_at = utcnow_naive()
     project.updated_at = utcnow_naive()
 
-    db.flush()
-    commits_added = sync_commits(db, project, fetch_all=fetch_all)
     db.commit()
-    return ("created" if created else "updated", project.name, commits_added)
+    return ("created" if created else "updated", project.name)
 
 
-def scan_repos(db, root: Path, recursive: bool = False, fetch_all: bool = False) -> dict:
+def scan_repos(db, root: Path, recursive: bool = False) -> dict:
     """Scan a directory for git repos and import/update them. Returns a summary dict."""
     buckets, states = ensure_defaults(db)
     repos = list(find_git_repos(root, recursive=recursive))
 
     results = []
-    total_created = total_updated = total_commits = 0
+    total_created = total_updated = total_skipped = 0
     for repo in repos:
-        action, name, commits_added = import_repo(db, repo, buckets, states, fetch_all=fetch_all)
-        results.append({"action": action, "name": name, "commits_added": commits_added})
+        try:
+            action, name = import_repo(db, repo, buckets, states)
+        except Exception as exc:
+            db.rollback()
+            total_skipped += 1
+            results.append({
+                "action": "skipped",
+                "name": repo.name,
+                "path": str(repo),
+                "error": str(exc),
+            })
+            continue
+
+        results.append({"action": action, "name": name, "path": str(repo)})
         if action == "created":
             total_created += 1
         else:
             total_updated += 1
-        total_commits += commits_added
 
     return {
         "root": str(root),
         "total": len(repos),
         "created": total_created,
         "updated": total_updated,
-        "commits_added": total_commits,
+        "skipped": total_skipped,
         "projects": results,
     }
 
@@ -336,7 +288,6 @@ def main():
     parser = argparse.ArgumentParser(description="Import local git repositories into VibeFocus.")
     parser.add_argument("--root", required=True, help="Directory containing local git repositories.")
     parser.add_argument("--recursive", action="store_true", help="Search recursively for .git directories.")
-    parser.add_argument("--fetch-all", action="store_true", help="Import complete git history instead of the last year.")
     args = parser.parse_args()
 
     root = Path(args.root).expanduser().resolve()
@@ -344,15 +295,16 @@ def main():
         raise SystemExit(f"Root directory does not exist: {root}")
 
     with SessionLocal() as db:
-        result = scan_repos(db, root, recursive=args.recursive, fetch_all=args.fetch_all)
+        result = scan_repos(db, root, recursive=args.recursive)
 
     if result["total"] == 0:
         raise SystemExit(f"No git repositories found under {root}")
 
-    for p in result["projects"]:
-        print(f"{p['action']:7} {p['name']} ({p['commits_added']} commits)")
+    for project in result["projects"]:
+        suffix = f" ({project['error']})" if project.get("error") else ""
+        print(f"{project['action']:7} {project['name']}{suffix}")
     print("")
-    print(f"Imported {result['total']} repos: {result['created']} created, {result['updated']} updated, {result['commits_added']} commits added.")
+    print(f"Imported {result['total']} repos: {result['created']} created, {result['updated']} updated, {result['skipped']} skipped.")
 
 
 if __name__ == "__main__":

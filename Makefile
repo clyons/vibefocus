@@ -9,7 +9,7 @@ MCP_VENV    := $(MCP_DIR)/venv
 BE_PORT     ?= 8001
 FE_PORT     ?= 5173
 PYTHON      ?= python3
-PROJECTS_DIR ?= $(HOME)/conductor/repos
+PROJECTS_DIR ?=
 VIBEFOCUS_PORT ?= 8000
 VIBEFOCUS_DATA ?= $(HOME)/.vibefocus/data
 DOCKER_COMPOSE ?= $(shell if docker compose version >/dev/null 2>&1; then echo "docker compose"; elif command -v docker-compose >/dev/null 2>&1; then echo "docker-compose"; else echo "docker compose"; fi)
@@ -44,6 +44,10 @@ install-mcp: ## Create venv and install MCP server dependencies
 	cd $(MCP_DIR) && $(PYTHON) -m venv venv && . venv/bin/activate && pip install -r requirements.txt
 
 import-projects: ## Import local git repos into VibeFocus (PROJECTS_DIR=/path/to/repos)
+	@if [ -z "$(PROJECTS_DIR)" ]; then \
+		echo "PROJECTS_DIR is required. Example: make import-projects PROJECTS_DIR=/path/to/repos"; \
+		exit 1; \
+	fi
 	cd $(BE_DIR) && . venv/bin/activate && python import_local_projects.py --root "$(PROJECTS_DIR)"
 
 # ── Frontend ─────────────────────────────────────────────────────────────────
@@ -108,7 +112,11 @@ docker-run: docker-env-check ## Start always-on Docker container (detached; surv
 	$(DOCKER_COMPOSE) up -d --build
 	@echo "App running at http://localhost:$(VIBEFOCUS_PORT)"
 	@echo "Data dir: $(VIBEFOCUS_DATA)"
-	@echo "Mounted projects from $(PROJECTS_DIR)"
+	@if [ -n "$(PROJECTS_DIR)" ]; then \
+		echo "Mounted projects from $(PROJECTS_DIR)"; \
+	else \
+		echo "No default projects directory configured. Enter one in Settings or restart with PROJECTS_DIR=/path/to/repos."; \
+	fi
 
 docker-test: docker-env-check docker-build ## Build, start, and verify Docker container
 	$(DOCKER_COMPOSE) up -d
@@ -122,7 +130,11 @@ docker-test: docker-env-check docker-build ## Build, start, and verify Docker co
 	echo "=== Version ==="; \
 	curl -sf http://localhost:$$PORT/version && echo ""; \
 	echo "=== Projects Mount ==="; \
-	$(DOCKER_COMPOSE) exec vibefocus ls "$(PROJECTS_DIR)" 2>/dev/null | head -3 || echo "(not mounted)"; \
+	if [ -n "$(PROJECTS_DIR)" ]; then \
+		$(DOCKER_COMPOSE) exec vibefocus ls "$(PROJECTS_DIR)" 2>/dev/null | head -3 || echo "(not mounted)"; \
+	else \
+		echo "(not configured)"; \
+	fi; \
 	echo ""; \
 	echo "Docker test passed. App at http://localhost:$$PORT"
 
